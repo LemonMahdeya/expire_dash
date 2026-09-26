@@ -25,7 +25,7 @@ def check_password():
         with col2:
             password = st.text_input("كلمة السر / Password:", type="password")
             if st.button("تسجيل الدخول / Login", use_container_width=True):
-                if password == "123456":  # <--- يمكنك تغيير كلمة السر من هنا
+                if password == "123456":  # <--- تغيير كلمة السر هنا
                     st.session_state["authenticated"] = True
                     st.rerun()
                 else:
@@ -49,7 +49,7 @@ if check_password():
         response = requests.get(parquet_url)
         df_raw = pd.read_parquet(io.BytesIO(response.content))
 
-        # 1. Removed Columns (تطبيق حذف الأعمدة مثل Power Query)
+        # 1. Removed Columns (حذف الأعمدة بنفس خطوات Power Query)
         cols_to_remove = [
             "CONFG_SER",
             "LOT_NO",
@@ -71,10 +71,10 @@ if check_password():
             "Int64"
         )
 
-        # --- ب. قراءة شيت Supervision Data (Table1) ---
+        # --- ب. قراءة شيت Supervision Data (قراءة الشيت الأول sheet_name=0) ---
         table1_sheet_id = "1kY6jzVoHCYhm_0a9uxd9sjtllNnjfFz7"
         table1_url = f"https://docs.google.com/spreadsheets/d/{table1_sheet_id}/export?format=xlsx"
-        table1 = pd.read_excel(table1_url, sheet_name="Table1")
+        table1 = pd.read_excel(table1_url, sheet_name=0)
         table1["Store Code"] = pd.to_numeric(
             table1["Store Code"], errors="coerce"
         ).astype("Int64")
@@ -88,10 +88,10 @@ if check_password():
         )
         df.drop(columns=["Store Code"], inplace=True, errors="ignore")
 
-        # --- ج. قراءة شيت Branches Data (Table2) ---
+        # --- ج. قراءة شيت Branches Data (قراءة الشيت الأول sheet_name=0) ---
         table2_sheet_id = "1i_kxf7J83EDYgr2SzkYlLKjzD9uM4Gie"
         table2_url = f"https://docs.google.com/spreadsheets/d/{table2_sheet_id}/export?format=xlsx"
-        table2 = pd.read_excel(table2_url, sheet_name="Table2")
+        table2 = pd.read_excel(table2_url, sheet_name=0)
         table2["STORE"] = pd.to_numeric(
             table2["STORE"], errors="coerce"
         ).astype("Int64")
@@ -116,7 +116,6 @@ if check_password():
         df["BRANCH"] = df["BRANCH"].fillna("NON_SELLING_STORES")
 
         # Added Custom Column & Convert to Date
-        # المماثل لخطوة: Text.Combine({Text.Start([EXPIRY_DATE], 6), "20", Text.Middle([EXPIRY_DATE], 6)})
         def format_expiry(val):
             if pd.isna(val) or not isinstance(val, str) or len(val) < 6:
                 return val
@@ -148,7 +147,7 @@ if check_password():
         unsafe_allow_html=True,
     )
 
-    # الشريط الجانبي للفلاتر (Sidebar Filters)
+    # الشريط الجانبي للفلاتر
     st.sidebar.header("Filter Options")
     available_months = sorted(
         [m for m in df["Year-Month"].dropna().unique() if m != "NaT"]
@@ -163,7 +162,7 @@ if check_password():
     else:
         filtered_df = df
 
-    # الصف الأول: KPI Cards
+    # KPI Cards
     total_sales = filtered_df["TOT_SALES"].sum()
     total_qty = filtered_df["QTY"].sum()
 
@@ -173,7 +172,7 @@ if check_password():
 
     st.markdown("---")
 
-    # الصف الثاني: الرسومات البيانية
+    # الرسومات البيانية
     col_left, col_right = st.columns(2)
 
     with col_left:
@@ -214,7 +213,7 @@ if check_password():
         )
         st.plotly_chart(fig_pie, use_container_width=True)
 
-    # الصف الثالث: المشرفين والجدول التفصيلي
+    # المشرفين والجدول
     col_sup, col_table = st.columns([1, 1])
 
     with col_sup:
