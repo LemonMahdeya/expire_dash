@@ -25,7 +25,7 @@ def check_password():
         with col2:
             password = st.text_input("كلمة السر / Password:", type="password")
             if st.button("تسجيل الدخول / Login", use_container_width=True):
-                if password == "123456":  # <--- تغيير كلمة السر هنا
+                if password == "123456":  # كلمة السر
                     st.session_state["authenticated"] = True
                     st.rerun()
                 else:
@@ -36,11 +36,11 @@ def check_password():
 
 if check_password():
     # ---------------------------------------------------------
-    # 2. تحميل البيانات من الروابط مباشرة وتطبيق Power Query Logic
+    # 2. تحميل البيانات وتنسيق الأعمدة مرن
     # ---------------------------------------------------------
     @st.cache_data(ttl=3600)
     def load_and_transform_data():
-        # --- أ. تحميل وقراءة ملف Parquet من Google Drive ---
+        # --- أ. تحميل Parquet من Google Drive ---
         parquet_file_id = "1xlmf0jNJ2WC27Rd88EiRLlWVsEpNELC5"
         parquet_url = (
             f"https://drive.google.com/uc?export=download&id={parquet_file_id}"
@@ -49,7 +49,7 @@ if check_password():
         response = requests.get(parquet_url)
         df_raw = pd.read_parquet(io.BytesIO(response.content))
 
-        # 1. Removed Columns (حذف الأعمدة بنفس خطوات Power Query)
+        # حذف الأعمدة بنفس خطوات Power Query
         cols_to_remove = [
             "CONFG_SER",
             "LOT_NO",
@@ -65,57 +65,103 @@ if check_password():
         df = df_raw.drop(
             columns=[c for c in cols_to_remove if c in df_raw.columns]
         )
-
-        # 2. Changed Type STORE to Int
+        df.columns = df.columns.str.strip()
         df["STORE"] = pd.to_numeric(df["STORE"], errors="coerce").astype(
             "Int64"
         )
 
-        # --- ب. قراءة شيت Supervision Data (قراءة الشيت الأول sheet_name=0) ---
+        # --- ب. قراءة Supervision Data (Table1) ---
         table1_sheet_id = "1kY6jzVoHCYhm_0a9uxd9sjtllNnjfFz7"
         table1_url = f"https://docs.google.com/spreadsheets/d/{table1_sheet_id}/export?format=xlsx"
+
+        # قراءة الشيت والبحث عن الهيدر المناسب
         table1 = pd.read_excel(table1_url, sheet_name=0)
-        table1["Store Code"] = pd.to_numeric(
-            table1["Store Code"], errors="coerce"
+        table1.columns = table1.columns.astype(str).str.strip()
+
+        # إيجاد العمود المطابق لـ Store Code تلقائياً
+        store_col_t1 = next(
+            (
+                c
+                for c in table1.columns
+                if c.lower() in ["store code", "store_code", "storecode", "store"]
+            ),
+            table1.columns[0],
+        )
+        sup_col_t1 = next(
+            (c for c in table1.columns if "supervisor" in c.lower()),
+            "Supervisor",
+        )
+
+        table1[store_col_t1] = pd.to_numeric(
+            table1[store_col_t1], errors="coerce"
         ).astype("Int64")
 
-        # Merged Queries & Expanded Table1
+        # Merge Table1
         df = df.merge(
-            table1[["Store Code", "Supervisor"]],
+            table1[[store_col_t1, sup_col_t1]],
             left_on="STORE",
-            right_on="Store Code",
+            right_on=store_col_t1,
             how="left",
         )
-        df.drop(columns=["Store Code"], inplace=True, errors="ignore")
+        if store_col_t1 != "STORE":
+            df.drop(columns=[store_col_t1], inplace=True, errors="ignore")
 
-        # --- ج. قراءة شيت Branches Data (قراءة الشيت الأول sheet_name=0) ---
+        if sup_col_t1 != "Supervisor":
+            df.rename(columns={sup_col_t1: "Supervisor"}, inplace=True)
+
+        # --- ج. قراءة Branches Data (Table2) ---
         table2_sheet_id = "1i_kxf7J83EDYgr2SzkYlLKjzD9uM4Gie"
         table2_url = f"https://docs.google.com/spreadsheets/d/{table2_sheet_id}/export?format=xlsx"
-        table2 = pd.read_excel(table2_url, sheet_name=0)
-        table2["STORE"] = pd.to_numeric(
-            table2["STORE"], errors="coerce"
-        ).astype("Int64")
 
-        # Merged Queries1 & Expanded Table2
-        df = df.merge(
-            table2[["STORE", "NAME"]], on="STORE", how="left", suffixes=("", "_t2")
+        table2 = pd.read_excel(table2_url, sheet_name=0)
+        table2.columns = table2.columns.astype(str).str.strip()
+
+        store_col_t2 = next(
+            (
+                c
+                for c in table2.columns
+                if c.lower() in ["store", "store code", "store_code"]
+            ),
+            table2.columns[0],
+        )
+        name_col_t2 = next(
+            (
+                c
+                for c in table2.columns
+                if c.lower() in ["name", "branch", "branch_name", "st_name"]
+            ),
+            table2.columns[1] if len(table2.columns) > 1 else table2.columns[0],
         )
 
-        # Renamed Columns
+        table2[store_col_t2] = pd.to_numeric(
+            table2[store_col_t2], errors="coerce"
+        ).astype("Int64")
+
+        # Merge Table2
+        df = df.merge(
+            table2[[store_col_t2, name_col_t2]],
+            left_on="STORE",
+            right_on=store_col_t2,
+            how="left",
+            suffixes=("", "_t2"),
+        )
+        if store_col_t2 != "STORE":
+            df.drop(columns=[store_col_t2], inplace=True, errors="ignore")
+
+        # Renamed Columns & Values Replacement
         df.rename(
             columns={
-                "NAME": "BRANCH",
+                name_col_t2: "BRANCH",
                 "ITEM": "ITEM_CODE",
                 "STORE": "STORE_CODE",
             },
             inplace=True,
         )
 
-        # Replaced Value null -> "NON_SELLING_STORES"
         df["Supervisor"] = df["Supervisor"].fillna("NON_SELLING_STORES")
         df["BRANCH"] = df["BRANCH"].fillna("NON_SELLING_STORES")
 
-        # Added Custom Column & Convert to Date
+        # Added Custom Expiry Date Column
         def format_expiry(val):
             if pd.isna(val) or not isinstance(val, str) or len(val) < 6:
                 return val
@@ -126,17 +172,17 @@ if check_password():
             df["EXPIRE_DATE"], errors="coerce", dayfirst=True
         )
 
-        # Changed Type numeric
+        # Changed Type Numeric
         for col in ["TOT_SALES", "SALES_PRICE", "QTY"]:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
-        # إضافة عمود Year-Month للفلترة
+        # Year-Month
         df["Year-Month"] = df["EXPIRE_DATE"].dt.strftime("%Y-%m")
 
         return df
 
-    with st.spinner("جاري تحميل البيانات وتحليلها..."):
+    with st.spinner("جاري تحميل البيانات وتجهيز الداشبورد..."):
         df = load_and_transform_data()
 
     # ---------------------------------------------------------
@@ -150,7 +196,11 @@ if check_password():
     # الشريط الجانبي للفلاتر
     st.sidebar.header("Filter Options")
     available_months = sorted(
-        [m for m in df["Year-Month"].dropna().unique() if m != "NaT"]
+        [
+            m
+            for m in df["Year-Month"].dropna().unique()
+            if m != "NaT" and m != "None"
+        ]
     )
 
     selected_months = st.sidebar.multiselect(
